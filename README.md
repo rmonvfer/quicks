@@ -1,8 +1,17 @@
 # Quicks
 
-An incredibly simple kv in-memory data store with support for javascript scripting.
-
+A drop-in replacement for Redis with support for JS scripting.
 
 ## Usage
 
-For now, run `go run .` from the project root and connect using `redis-cli -p 6380`.
+```bash
+go run .
+```
+
+Then connect with `redis-cli -p 6380`.
+
+## Tests
+
+```bash
+go test ./...
+```

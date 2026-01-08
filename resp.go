@@ -38,6 +38,64 @@ type Value struct {
 	Null    bool    // bulk strings and arrays can be null
 }
 
+type Writer struct {
+	wr *bufio.Writer
+}
+
+func NewWriter(w io.Writer) *Writer {
+	return &Writer{wr: bufio.NewWriter(w)}
+}
+
+func (w *Writer) WriteValue(v Value) error {
+	switch v.Type {
+	case SimpleString:
+		_, err := fmt.Fprintf(w.wr, "+%s\r\n", v.Str)
+		return err
+
+	case SimpleError:
+		_, err := fmt.Fprintf(w.wr, "-%s\r\n", v.Str)
+		return err
+
+	case Integer:
+		_, err := fmt.Fprintf(w.wr, ":%d\r\n", v.Integer)
+		return err
+
+	case BulkString:
+		if v.Null {
+			_, err := w.wr.WriteString("$-1\r\n")
+			return err
+		}
+		_, err := fmt.Fprintf(w.wr, "$%d\r\n%s\r\n", len(v.Str), v.Str)
+		return err
+
+	case Array:
+		if v.Null {
+			_, err := w.wr.WriteString("*-1\r\n")
+			return err
+		}
+		if _, err := fmt.Fprintf(w.wr, "*%d\r\n", len(v.Array)); err != nil {
+			return err
+		}
+		for _, elem := range v.Array {
+			if err := w.WriteValue(elem); err != nil { // recursive!
+				return err
+			}
+		}
+		return nil
+
+	case Null:
+		_, err := w.wr.WriteString("_\r\n")
+		return err
+
+	default:
+		return fmt.Errorf("unknown type: %c", v.Type)
+	}
+}
+
+func (w *Writer) Flush() error {
+	return w.wr.Flush()
+}
+
 type Reader struct {
 	rd *bufio.Reader
 }
