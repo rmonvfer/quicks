@@ -27,18 +27,14 @@ func handleConnection(conn net.Conn) {
 	defer conn.Close()
 	fmt.Printf("client connected: %s\n", conn.RemoteAddr())
 
-	// read 1024 bytes indefinitely
-	buf := make([]byte, 1024)
+	reader := NewReader(conn)
 	for {
-		n, err := conn.Read(buf)
+		val, err := reader.ReadValue()
 		if err != nil {
 			fmt.Printf("read error: %v\n", err)
 			return
 		}
-		fmt.Printf("received %d bytes:\n", n)
-		fmt.Printf("raw: %q\n", buf[:n])
-
-		// Reply with an empty array
+		fmt.Printf("parsed: %+v\n", val)
 		conn.Write([]byte("*0\r\n"))
 	}
 }

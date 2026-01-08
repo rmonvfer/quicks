@@ -62,6 +62,8 @@ func (r *Reader) ReadValue() (Value, error) {
 		return r.readInteger()
 	case BulkString:
 		return r.readBulkString()
+	case Array:
+		return r.readArray()
 	case Null:
 		return Value{Type: Null, Null: true}, nil
 	default:
@@ -119,6 +121,11 @@ func (r *Reader) readBulkString() (Value, error) {
 		return Value{}, fmt.Errorf("invalid bulk string length: %v", err)
 	}
 
+	// RESP2 clients might send -1 length as null
+	if length == -1 {
+		return Value{Type: BulkString, Null: true}, nil
+	}
+
 	// read the rest of the string as per the provided length
 	buf := make([]byte, length)
 	if _, err := io.ReadFull(r.rd, buf); err != nil {
@@ -132,4 +139,34 @@ func (r *Reader) readBulkString() (Value, error) {
 	}
 
 	return Value{Type: BulkString, Str: string(buf)}, nil
+}
+
+func (r *Reader) readArray() (Value, error) {
+	// format is *<count>\r\n<element1><element2>...<elementN>
+	line, err := r.readLine()
+	if err != nil {
+		return Value{}, err
+	}
+
+	length, err := strconv.ParseInt(line, 10, 64)
+	if err != nil {
+		return Value{}, fmt.Errorf("invalid array length: %v", err)
+	}
+
+	// RESP2 clients might send -1 length as null
+	if length == -1 {
+		return Value{Type: Array, Null: true}, nil
+	}
+
+	// now each entry can be any Value
+	values := make([]Value, length)
+	for i := range length {
+		value, err := r.ReadValue()
+		if err != nil {
+			return Value{}, fmt.Errorf("couldn't parse array value at position %d: %v", i, err)
+		}
+		values[i] = value
+	}
+
+	return Value{Type: Array, Array: values}, nil
 }
