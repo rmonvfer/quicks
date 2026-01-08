@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -48,42 +47,26 @@ func NewReader(r io.Reader) *Reader {
 }
 
 func (r *Reader) ReadValue() (Value, error) {
-	line, err := r.readLine()
+	typeByte, err := r.rd.ReadByte()
 	if err != nil {
 		return Value{}, err
 	}
 
-	if len(line) == 0 {
-		// invalid RESP!
-		return Value{}, errors.New("invalid RESP: empty line")
-	}
-
-	// the first byte tells us the type of what's ahead
-	typeByte := line[0]
-	lineContent := line[1:]
-
 	// dispatch to the appropriate handler based on type
 	switch typeByte {
-
 	case SimpleString:
-		return Value{Type: SimpleString, Str: lineContent}, nil
-
+		return r.readSimpleString()
 	case SimpleError:
-		return Value{Type: SimpleError, Str: lineContent}, nil
-
+		return r.readSimpleError()
 	case Integer:
-		integerValue, err := strconv.ParseInt(lineContent, 10, 64)
-		if err != nil {
-			return Value{}, fmt.Errorf("invalid RESP: could not parse base 10 integer (%v)", err)
-		}
-		return Value{Type: Integer, Integer: integerValue}, nil
-
+		return r.readInteger()
+	case BulkString:
+		return r.readBulkString()
 	case Null:
 		return Value{Type: Null, Null: true}, nil
+	default:
+		return Value{}, fmt.Errorf("invalid RESP: unknown type (%c)", typeByte)
 	}
-
-	// nothing matched? invalid
-	return Value{}, errors.New("invalid RESP: unknown type")
 }
 
 func (r *Reader) readLine() (string, error) {
@@ -94,4 +77,59 @@ func (r *Reader) readLine() (string, error) {
 
 	line = strings.TrimSuffix(line, "\r\n")
 	return line, nil
+}
+
+func (r *Reader) readSimpleString() (Value, error) {
+	line, err := r.readLine()
+	if err != nil {
+		return Value{}, err
+	}
+	return Value{Type: SimpleString, Str: line}, nil
+}
+
+func (r *Reader) readSimpleError() (Value, error) {
+	line, err := r.readLine()
+	if err != nil {
+		return Value{}, err
+	}
+	return Value{Type: SimpleError, Str: line}, nil
+}
+
+func (r *Reader) readInteger() (Value, error) {
+	line, err := r.readLine()
+	if err != nil {
+		return Value{}, err
+	}
+	integerValue, err := strconv.ParseInt(line, 10, 64)
+	if err != nil {
+		return Value{}, fmt.Errorf("could not parse base 10 integer: %v", err)
+	}
+	return Value{Type: Integer, Integer: integerValue}, nil
+}
+
+func (r *Reader) readBulkString() (Value, error) {
+	// format is $<length>\r\n<data>\r\n
+	line, err := r.readLine()
+	if err != nil {
+		return Value{}, err
+	}
+
+	length, err := strconv.ParseInt(line, 10, 64)
+	if err != nil {
+		return Value{}, fmt.Errorf("invalid bulk string length: %v", err)
+	}
+
+	// read the rest of the string as per the provided length
+	buf := make([]byte, length)
+	if _, err := io.ReadFull(r.rd, buf); err != nil {
+		return Value{}, err
+	}
+
+	// consume the remining line termination
+	// this also ensures the line is correctly delimited
+	if _, err := r.readLine(); err != nil {
+		return Value{}, err
+	}
+
+	return Value{Type: BulkString, Str: string(buf)}, nil
 }
